@@ -10,12 +10,11 @@ import org.apache.http.entity.{ContentType, StringEntity}
 import org.apache.http.impl.client.HttpClients
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
+import org.json4s.jackson.Serialization.write
 
 
 object SBXQuery extends App {
 
-
-  sealed trait Data
 
   case class Variety(varietyName: String, color: String, productGroup: String, _KEY: String)
 
@@ -25,10 +24,12 @@ object SBXQuery extends App {
 
   case class Response[T](success: Boolean, error: Option[String], results: List[T])
 
+  case class Data[T](rows: List[T], row_model: String, domain: String)
+
 
   def loadFromSBX(query: String): String = {
     val client = HttpClients.createDefault()
-    val uri = new URI(s"http://54.71.230.34/api/data/v1/row/find")
+    val uri = new URI(s"https://www.ibuyflowers.com/api/data/v1/row/find")
     val post = new HttpPost(uri)
     post.addHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.toString)
     post.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString)
@@ -48,7 +49,23 @@ object SBXQuery extends App {
   }
 
   def insertToSbx(query: String): Unit = {
+    val client = HttpClients.createDefault()
+    val uri = new URI(s"https://sbxcloud.com/api/data/v1/row")
+    val post = new HttpPost(uri)
+    post.addHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.toString)
+    post.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString)
+    post.addHeader(HttpHeaders.AUTHORIZATION, s"Bearer ${scala.util.Properties.envOrElse("TOKEN", "DOOM")}")
 
+    post.setEntity(new StringEntity(query))
+
+    val resp = client.execute(post)
+
+    try {
+      val entity = resp.getEntity
+      IOUtils.toString(entity.getContent, StandardCharsets.UTF_8)
+    } finally {
+      resp.close()
+    }
   }
 
 
@@ -76,7 +93,6 @@ object SBXQuery extends App {
   val resReplacement = jsonReplacement.camelizeKeys.extract[Response[Replacement]]
 
   if (resReplacement.success) {
-    println(resReplacement.results)
     val groupBy = resVariety.groupBy(a => (a.color, a.productGroup)).filter(a => a._2.size > 1)
     val newGroup = groupBy.values.flatMap(a => {
       val x = a.flatMap(b => {
@@ -90,10 +106,15 @@ object SBXQuery extends App {
       })
       x
     })
-    println(newGroup.size)
 
+    println(newGroup.size)
+    println(resReplacement.results.length)
+    println(newGroup.size - resReplacement.results.length)
+    val tmp1 = new Data[Replacement](newGroup.filterNot(resReplacement.results.toSet).slice(0, 1000).toList, "replacement", "129")
+    val tmp2 = new Data[Replacement](newGroup.filterNot(resReplacement.results.toSet).slice(1001, 2000).toList, "replacement", "129")
+    val tmp3 = new Data[Replacement](newGroup.filterNot(resReplacement.results.toSet).slice(2001, 1000).toList, "replacement", "129")
     println(newGroup.filterNot(resReplacement.results.toSet).size)
-    // insertToSbx("{\"page\":1,\"size\":1000,\"domain\":\"96\",\"row_model\":\"replacement\",\"rows\":[{\"variety\":\"b78a5ae1-ffb9-4712-9328-50e2d8666439\",\"replace\":\"b78a5ae1-ffb9-4712-9328-50e2d8666439\"}]}")
+
   } else {
     println(resReplacement.error.getOrElse("No error but didn't work dude."))
   }
